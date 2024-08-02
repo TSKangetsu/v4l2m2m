@@ -4,3 +4,4 @@
 *.symvers
 *.order
 *.cmd
+compile_commands.json
