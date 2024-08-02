@@ -71,7 +71,7 @@ static struct platform_device v4l2m2mp = { .name = VMName,
 
 static int v4l2m2m_probe(struct platform_device *pdev)
 {
-#ifdef LOGLEVEL <= 1
+#if LOGLEVEL <= 1
 	printk("[V4L2M2M] check module probe 1");
 #endif
 	//============================================//
@@ -104,7 +104,7 @@ static int v4l2m2m_probe(struct platform_device *pdev)
 	video_set_drvdata(vdev, v4l2m2mdev);
 	platform_set_drvdata(pdev, v4l2m2mdev);
 	//============================================//
-#ifdef LOGLEVEL <= 1
+#if LOGLEVEL <= 1
 	printk("[V4L2M2M] check module inited");
 #endif
 	return 0;
