@@ -97,59 +97,14 @@ struct vim2m_fmt {
 static struct vim2m_fmt formats[] = {
 	{
 		.fourcc = V4L2_PIX_FMT_NV12, /* rrrrrggg gggbbbbb */
-		.depth = 16,
+		.depth = 12,
 		.types = MEM2MEM_CAPTURE | MEM2MEM_OUTPUT,
 	},
 	{
 		.fourcc = V4L2_PIX_FMT_H264, /* rrrrrggg gggbbbbb */
-		.depth = 16,
+		.depth = 8,
 		.types = MEM2MEM_CAPTURE | MEM2MEM_OUTPUT,
 	},
-	// {
-	// 	.fourcc = V4L2_PIX_FMT_RGB565, /* rrrrrggg gggbbbbb */
-	// 	.depth = 16,
-	// 	.types = MEM2MEM_CAPTURE | MEM2MEM_OUTPUT,
-	// },
-	// {
-	// 	.fourcc = V4L2_PIX_FMT_RGB565X, /* gggbbbbb rrrrrggg */
-	// 	.depth = 16,
-	// 	.types = MEM2MEM_CAPTURE | MEM2MEM_OUTPUT,
-	// },
-	// {
-	// 	.fourcc = V4L2_PIX_FMT_RGB24,
-	// 	.depth = 24,
-	// 	.types = MEM2MEM_CAPTURE | MEM2MEM_OUTPUT,
-	// },
-	// {
-	// 	.fourcc = V4L2_PIX_FMT_BGR24,
-	// 	.depth = 24,
-	// 	.types = MEM2MEM_CAPTURE | MEM2MEM_OUTPUT,
-	// },
-	// {
-	// 	.fourcc = V4L2_PIX_FMT_YUYV,
-	// 	.depth = 16,
-	// 	.types = MEM2MEM_CAPTURE,
-	// },
-	// {
-	// 	.fourcc = V4L2_PIX_FMT_SBGGR8,
-	// 	.depth = 8,
-	// 	.types = MEM2MEM_CAPTURE,
-	// },
-	// {
-	// 	.fourcc = V4L2_PIX_FMT_SGBRG8,
-	// 	.depth = 8,
-	// 	.types = MEM2MEM_CAPTURE,
-	// },
-	// {
-	// 	.fourcc = V4L2_PIX_FMT_SGRBG8,
-	// 	.depth = 8,
-	// 	.types = MEM2MEM_CAPTURE,
-	// },
-	// {
-	// 	.fourcc = V4L2_PIX_FMT_SRGGB8,
-	// 	.depth = 8,
-	// 	.types = MEM2MEM_CAPTURE,
-	// },
 };
 
 #define NUM_FORMATS ARRAY_SIZE(formats)
@@ -284,190 +239,13 @@ static const char *type_name(enum v4l2_buf_type type)
 #define CLIP(__color) \
 	(u8)(((__color) > 0xff) ? 0xff : (((__color) < 0) ? 0 : (__color)))
 
-static void copy_line(struct vim2m_q_data *q_data_out, u8 *src, u8 *dst,
-		      bool reverse)
-{
-	int x, depth = q_data_out->fmt->depth >> 3;
-
-	if (!reverse) {
-		memcpy(dst, src, q_data_out->width * depth);
-	} else {
-		for (x = 0; x < q_data_out->width >> 1; x++) {
-			memcpy(dst, src, depth);
-			memcpy(dst + depth, src - depth, depth);
-			src -= depth << 1;
-			dst += depth << 1;
-		}
-		return;
-	}
-}
-
-static void copy_two_pixels(struct vim2m_q_data *q_data_in,
-			    struct vim2m_q_data *q_data_out, u8 *src[2],
-			    u8 **dst, int ypos, bool reverse)
-{
-	struct vim2m_fmt *out = q_data_out->fmt;
-	struct vim2m_fmt *in = q_data_in->fmt;
-	u8 _r[2], _g[2], _b[2], *r, *g, *b;
-	int i;
-
-	/* Step 1: read two consecutive pixels from src pointer */
-
-	r = _r;
-	g = _g;
-	b = _b;
-
-	switch (in->fourcc) {
-	case V4L2_PIX_FMT_RGB565: /* rrrrrggg gggbbbbb */
-		for (i = 0; i < 2; i++) {
-			u16 pix = le16_to_cpu(*(__le16 *)(src[i]));
-
-			*r++ = (u8)(((pix & 0xf800) >> 11) << 3) | 0x07;
-			*g++ = (u8)((((pix & 0x07e0) >> 5)) << 2) | 0x03;
-			*b++ = (u8)((pix & 0x1f) << 3) | 0x07;
-		}
-		break;
-	case V4L2_PIX_FMT_RGB565X: /* gggbbbbb rrrrrggg */
-		for (i = 0; i < 2; i++) {
-			u16 pix = be16_to_cpu(*(__be16 *)(src[i]));
-
-			*r++ = (u8)(((pix & 0xf800) >> 11) << 3) | 0x07;
-			*g++ = (u8)((((pix & 0x07e0) >> 5)) << 2) | 0x03;
-			*b++ = (u8)((pix & 0x1f) << 3) | 0x07;
-		}
-		break;
-	default:
-	case V4L2_PIX_FMT_RGB24:
-		for (i = 0; i < 2; i++) {
-			*r++ = src[i][0];
-			*g++ = src[i][1];
-			*b++ = src[i][2];
-		}
-		break;
-	case V4L2_PIX_FMT_BGR24:
-		for (i = 0; i < 2; i++) {
-			*b++ = src[i][0];
-			*g++ = src[i][1];
-			*r++ = src[i][2];
-		}
-		break;
-	}
-
-	/* Step 2: store two consecutive points, reversing them if needed */
-
-	r = _r;
-	g = _g;
-	b = _b;
-
-	switch (out->fourcc) {
-	case V4L2_PIX_FMT_RGB565: /* rrrrrggg gggbbbbb */
-		for (i = 0; i < 2; i++) {
-			u16 pix;
-			__le16 *dst_pix = (__le16 *)*dst;
-
-			pix = ((*r << 8) & 0xf800) | ((*g << 3) & 0x07e0) |
-			      (*b >> 3);
-
-			*dst_pix = cpu_to_le16(pix);
-
-			*dst += 2;
-		}
-		return;
-	case V4L2_PIX_FMT_RGB565X: /* gggbbbbb rrrrrggg */
-		for (i = 0; i < 2; i++) {
-			u16 pix;
-			__be16 *dst_pix = (__be16 *)*dst;
-
-			pix = ((*r << 8) & 0xf800) | ((*g << 3) & 0x07e0) |
-			      (*b >> 3);
-
-			*dst_pix = cpu_to_be16(pix);
-
-			*dst += 2;
-		}
-		return;
-	case V4L2_PIX_FMT_RGB24:
-		for (i = 0; i < 2; i++) {
-			*(*dst)++ = *r++;
-			*(*dst)++ = *g++;
-			*(*dst)++ = *b++;
-		}
-		return;
-	case V4L2_PIX_FMT_BGR24:
-		for (i = 0; i < 2; i++) {
-			*(*dst)++ = *b++;
-			*(*dst)++ = *g++;
-			*(*dst)++ = *r++;
-		}
-		return;
-	case V4L2_PIX_FMT_YUYV:
-	default: {
-		u8 y, y1, u, v;
-
-		y = ((8453 * (*r) + 16594 * (*g) + 3223 * (*b) + 524288) >> 15);
-		u = ((-4878 * (*r) - 9578 * (*g) + 14456 * (*b) + 4210688) >>
-		     15);
-		v = ((14456 * (*r++) - 12105 * (*g++) - 2351 * (*b++) +
-		      4210688) >>
-		     15);
-		y1 = ((8453 * (*r) + 16594 * (*g) + 3223 * (*b) + 524288) >>
-		      15);
-
-		*(*dst)++ = y;
-		*(*dst)++ = u;
-
-		*(*dst)++ = y1;
-		*(*dst)++ = v;
-		return;
-	}
-	case V4L2_PIX_FMT_SBGGR8:
-		if (!(ypos & 1)) {
-			*(*dst)++ = *b;
-			*(*dst)++ = *++g;
-		} else {
-			*(*dst)++ = *g;
-			*(*dst)++ = *++r;
-		}
-		return;
-	case V4L2_PIX_FMT_SGBRG8:
-		if (!(ypos & 1)) {
-			*(*dst)++ = *g;
-			*(*dst)++ = *++b;
-		} else {
-			*(*dst)++ = *r;
-			*(*dst)++ = *++g;
-		}
-		return;
-	case V4L2_PIX_FMT_SGRBG8:
-		if (!(ypos & 1)) {
-			*(*dst)++ = *g;
-			*(*dst)++ = *++r;
-		} else {
-			*(*dst)++ = *b;
-			*(*dst)++ = *++g;
-		}
-		return;
-	case V4L2_PIX_FMT_SRGGB8:
-		if (!(ypos & 1)) {
-			*(*dst)++ = *r;
-			*(*dst)++ = *++g;
-		} else {
-			*(*dst)++ = *g;
-			*(*dst)++ = *++b;
-		}
-		return;
-	}
-}
-
 static int device_process(struct vim2m_ctx *ctx, struct vb2_v4l2_buffer *in_vb,
 			  struct vb2_v4l2_buffer *out_vb)
 {
 	struct vim2m_dev *dev = ctx->dev;
 	struct vim2m_q_data *q_data_in, *q_data_out;
-	u8 *p_in, *p_line, *p_in_x[2], *p, *p_out;
+	u8 *p_in, *p_out;
 	unsigned int width, height, bytesperline, bytes_per_pixel;
-	unsigned int x, y, y_in, y_out, x_int, x_fract, x_err, x_offset;
-	int start, end, step;
 
 	q_data_in = get_q_data(ctx, V4L2_BUF_TYPE_VIDEO_OUTPUT);
 	if (!q_data_in)
@@ -497,86 +275,6 @@ static int device_process(struct vim2m_ctx *ctx, struct vb2_v4l2_buffer *in_vb,
 
 	printk("check plane: %d", p_in[0]);
 	p_out[0] = 0xFE;
-
-	// if (ctx->mode & MEM2MEM_VFLIP) {
-	// 	start = height - 1;
-	// 	end = -1;
-	// 	step = -1;
-	// } else {
-	// 	start = 0;
-	// 	end = height;
-	// 	step = 1;
-	// }
-	// y_out = 0;
-
-	/*
-	 * When format and resolution are identical,
-	 * we can use a faster copy logic
-	 */
-	// if (q_data_in->fmt->fourcc == q_data_out->fmt->fourcc &&
-	//     q_data_in->width == q_data_out->width &&
-	//     q_data_in->height == q_data_out->height) {
-	// 	for (y = start; y != end; y += step, y_out++) {
-	// 		p = p_in + (y * bytesperline);
-	// 		if (ctx->mode & MEM2MEM_HFLIP)
-	// 			p += bytesperline -
-	// 			     (q_data_in->fmt->depth >> 3);
-
-	// 		copy_line(q_data_out, p, p_out,
-	// 			  ctx->mode & MEM2MEM_HFLIP);
-
-	// 		p_out += bytesperline;
-	// 	}
-	// 	return 0;
-	// }
-
-	// /* Slower algorithm with format conversion, hflip, vflip and scaler */
-
-	// /* To speed scaler up, use Bresenham for X dimension */
-	// x_int = q_data_in->width / q_data_out->width;
-	// x_fract = q_data_in->width % q_data_out->width;
-
-	// for (y = start; y != end; y += step, y_out++) {
-	// 	y_in = (y * q_data_in->height) / q_data_out->height;
-	// 	x_offset = 0;
-	// 	x_err = 0;
-
-	// 	p_line = p_in + (y_in * bytesperline);
-	// 	if (ctx->mode & MEM2MEM_HFLIP)
-	// 		p_line += bytesperline - (q_data_in->fmt->depth >> 3);
-	// 	p_in_x[0] = p_line;
-
-	// 	for (x = 0; x < width >> 1; x++) {
-	// 		x_offset += x_int;
-	// 		x_err += x_fract;
-	// 		if (x_err > width) {
-	// 			x_offset++;
-	// 			x_err -= width;
-	// 		}
-
-	// 		if (ctx->mode & MEM2MEM_HFLIP)
-	// 			p_in_x[1] = p_line - x_offset * bytes_per_pixel;
-	// 		else
-	// 			p_in_x[1] = p_line + x_offset * bytes_per_pixel;
-
-	// 		copy_two_pixels(q_data_in, q_data_out,
-	// 				p_in_x, &p_out, y_out,
-	// 				ctx->mode & MEM2MEM_HFLIP);
-
-	// 		/* Calculate the next p_in_x0 */
-	// 		x_offset += x_int;
-	// 		x_err += x_fract;
-	// 		if (x_err > width) {
-	// 			x_offset++;
-	// 			x_err -= width;
-	// 		}
-
-	// 		if (ctx->mode & MEM2MEM_HFLIP)
-	// 			p_in_x[0] = p_line - x_offset * bytes_per_pixel;
-	// 		else
-	// 			p_in_x[0] = p_line + x_offset * bytes_per_pixel;
-	// 	}
-	// }
 
 	return 0;
 }
