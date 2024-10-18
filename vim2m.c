@@ -78,6 +78,12 @@ MODULE_PARM_DESC(default_transtime, "default transaction time in ms");
 #define dprintk(dev, lvl, fmt, arg...) \
 	v4l2_dbg(lvl, debug, &(dev)->v4l2_dev, "%s: " fmt, __func__, ##arg)
 
+static int e_vim2m_input_size = 0;
+static int e_vim2m_input_set = 0;
+static int e_vim2m_output_set = 0;
+static uint8_t *data_frame_buffer_tmp;
+static uint8_t *data_frame_buffer_tmp2;
+
 static void vim2m_dev_release(struct device *dev)
 {
 }
@@ -96,12 +102,12 @@ struct vim2m_fmt {
 
 static struct vim2m_fmt formats[] = {
 	{
-		.fourcc = V4L2_PIX_FMT_NV12, /* rrrrrggg gggbbbbb */
+		.fourcc = V4L2_PIX_FMT_NV12,
 		.depth = 12,
 		.types = MEM2MEM_CAPTURE | MEM2MEM_OUTPUT,
 	},
 	{
-		.fourcc = V4L2_PIX_FMT_H264, /* rrrrrggg gggbbbbb */
+		.fourcc = V4L2_PIX_FMT_H264,
 		.depth = 8,
 		.types = MEM2MEM_CAPTURE | MEM2MEM_OUTPUT,
 	},
@@ -263,6 +269,7 @@ static int device_process(struct vim2m_ctx *ctx, struct vb2_v4l2_buffer *in_vb,
 
 	p_in = vb2_plane_vaddr(&in_vb->vb2_buf, 0);
 	p_out = vb2_plane_vaddr(&out_vb->vb2_buf, 0);
+
 	if (!p_in || !p_out) {
 		v4l2_err(&dev->v4l2_dev,
 			 "Acquiring kernel pointers to buffers failed\n");
@@ -273,8 +280,42 @@ static int device_process(struct vim2m_ctx *ctx, struct vb2_v4l2_buffer *in_vb,
 	in_vb->sequence = q_data_in->sequence++;
 	v4l2_m2m_buf_copy_metadata(in_vb, out_vb, true);
 
-	printk("check plane: %d", p_in[0]);
-	p_out[0] = 0xFE;
+	int p_in_used = vb2_get_plane_payload(&in_vb->vb2_buf, 0);
+	int p_out_used = vb2_get_plane_payload(&out_vb->vb2_buf, 0);
+	printk("set p size: %d %d %d %d", p_in_used, p_out_used,
+	       q_data_in->sizeimage, q_data_out->sizeimage);
+
+	if (q_data_in->fmt->fourcc == V4L2_PIX_FMT_H264) { // ENCODER SIDE
+		if (q_data_out->fmt->fourcc == V4L2_PIX_FMT_NV12) {
+			if (e_vim2m_input_set != 1) {
+				memcpy(data_frame_buffer_tmp, p_in,
+				       q_data_in->sizeimage * sizeof(uint8_t));
+				memcpy(p_out, data_frame_buffer_tmp2,
+				       q_data_out->sizeimage * sizeof(uint8_t));
+				e_vim2m_input_set = 1; // check H264 get in
+				e_vim2m_input_size = p_in_used;
+			}
+		}
+	} else if (q_data_in->fmt->fourcc == V4L2_PIX_FMT_NV12) { // SEND SIDE
+		if (q_data_out->fmt->fourcc == V4L2_PIX_FMT_H264) {
+			if (e_vim2m_input_set == 0) // 0 EAGAIN
+			{
+				return EAGAIN;
+			} else if (e_vim2m_input_set == 1) {
+				//
+				e_vim2m_input_set =
+					2; // now pop out H264, avoid double
+				memcpy(p_out, data_frame_buffer_tmp,
+				       q_data_out->sizeimage * sizeof(uint8_t));
+				memcpy(data_frame_buffer_tmp2, p_in,
+				       q_data_in->sizeimage * sizeof(uint8_t));
+
+				printk("check :%d", e_vim2m_input_size);
+				vb2_set_plane_payload(&out_vb->vb2_buf, 0,
+						      e_vim2m_input_size);
+			}
+		}
+	}
 
 	return 0;
 }
@@ -345,8 +386,6 @@ static void device_work(struct work_struct *w)
 		pr_err("Instance released before the end of transaction\n");
 		return;
 	}
-
-	printk("should call multi caller");
 
 	vim2m_dev = curr_ctx->dev;
 
@@ -582,12 +621,6 @@ static int vidioc_s_fmt(struct vim2m_ctx *ctx, struct v4l2_format *f)
 	q_data->sizeimage =
 		q_data->width * q_data->height * q_data->fmt->depth >> 3;
 
-	printk("Format for type %s: %dx%d (%d bpp), fmt: %c%c%c%c\n",
-	       type_name(f->type), q_data->width, q_data->height,
-	       q_data->fmt->depth, (q_data->fmt->fourcc & 0xff),
-	       (q_data->fmt->fourcc >> 8) & 0xff,
-	       (q_data->fmt->fourcc >> 16) & 0xff,
-	       (q_data->fmt->fourcc >> 24) & 0xff);
 	dprintk(ctx->dev, 1,
 		"Format for type %s: %dx%d (%d bpp), fmt: %c%c%c%c\n",
 		type_name(f->type), q_data->width, q_data->height,
@@ -714,8 +747,6 @@ static int vim2m_queue_setup(struct vb2_queue *vq, unsigned int *nbuffers,
 	struct vim2m_q_data *q_data;
 	unsigned int size, count = *nbuffers;
 
-	printk("check setup?\n");
-
 	q_data = get_q_data(ctx, vq->type);
 	if (!q_data)
 		return -EINVAL;
@@ -731,6 +762,7 @@ static int vim2m_queue_setup(struct vb2_queue *vq, unsigned int *nbuffers,
 
 	*nplanes = 1;
 	sizes[0] = size;
+	e_vim2m_input_size = 0;
 
 	dprintk(ctx->dev, 1, "%s: get %d buffer(s) of size %d each.\n",
 		type_name(vq->type), count, size);
@@ -771,7 +803,9 @@ static int vim2m_buf_prepare(struct vb2_buffer *vb)
 		return -EINVAL;
 	}
 
-	vb2_set_plane_payload(vb, 0, q_data->sizeimage);
+	int vb_ued = vb2_get_plane_payload(vb, 0);
+	if (vb_ued == 0)
+		vb2_set_plane_payload(vb, 0, q_data->sizeimage);
 
 	return 0;
 }
@@ -1032,6 +1066,9 @@ static int vim2m_probe(struct platform_device *pdev)
 	struct video_device *vfd;
 	int ret;
 
+	data_frame_buffer_tmp = vmalloc(MAX_H * MAX_W * 3 * sizeof(uint8_t));
+	data_frame_buffer_tmp2 = vmalloc(MAX_H * MAX_W * 3 * sizeof(uint8_t));
+
 	dev = kzalloc(sizeof(*dev), GFP_KERNEL);
 	if (!dev)
 		return -ENOMEM;
@@ -1121,6 +1158,9 @@ static int vim2m_remove(struct platform_device *pdev)
 	v4l2_m2m_unregister_media_controller(dev->m2m_dev);
 #endif
 	video_unregister_device(&dev->vfd);
+
+	vfree(data_frame_buffer_tmp);
+	vfree(data_frame_buffer_tmp2);
 
 	return 0;
 }
