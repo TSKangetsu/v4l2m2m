@@ -282,8 +282,6 @@ static int device_process(struct vim2m_ctx *ctx, struct vb2_v4l2_buffer *in_vb,
 
 	int p_in_used = vb2_get_plane_payload(&in_vb->vb2_buf, 0);
 	int p_out_used = vb2_get_plane_payload(&out_vb->vb2_buf, 0);
-	printk("set p size: %d %d %d %d", p_in_used, p_out_used,
-	       q_data_in->sizeimage, q_data_out->sizeimage);
 
 	if (q_data_in->fmt->fourcc == V4L2_PIX_FMT_H264) { // ENCODER SIDE
 		if (q_data_out->fmt->fourcc == V4L2_PIX_FMT_NV12) {
