@@ -310,7 +310,6 @@ static int device_process(struct vim2m_ctx *ctx, struct vb2_v4l2_buffer *in_vb,
 				memcpy(data_frame_buffer_tmp2, p_in,
 				       q_data_in->sizeimage * sizeof(uint8_t));
 
-				printk("check :%d", e_vim2m_input_size);
 				vb2_set_plane_payload(&out_vb->vb2_buf, 0,
 						      e_vim2m_input_size);
 			}
