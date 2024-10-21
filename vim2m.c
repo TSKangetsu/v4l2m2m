@@ -368,7 +368,8 @@ static void device_run(void *priv)
 	v4l2_ctrl_request_complete(src_buf->vb2_buf.req_obj.req, &ctx->hdl);
 
 	/* Run delayed work, which simulates a hardware irq  */
-	schedule_delayed_work(&ctx->work_run, msecs_to_jiffies(ctx->transtime));
+	// schedule_delayed_work(&ctx->work_run, msecs_to_jiffies(ctx->transtime));
+	schedule_delayed_work(&ctx->work_run, 0); // FIXME: just disable delay sim! will cause EINVAL
 }
 
 static void device_work(struct work_struct *w)
@@ -800,8 +801,8 @@ static int vim2m_buf_prepare(struct vb2_buffer *vb)
 		return -EINVAL;
 	}
 
-	int vb_ued = vb2_get_plane_payload(vb, 0);
-	if (vb_ued == 0)
+	int vb_used = vb2_get_plane_payload(vb, 0);
+	if (vb_used == 0)
 		vb2_set_plane_payload(vb, 0, q_data->sizeimage);
 
 	return 0;
