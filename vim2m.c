@@ -292,7 +292,9 @@ static int device_process(struct vim2m_ctx *ctx, struct vb2_v4l2_buffer *in_vb,
 				       q_data_out->sizeimage * sizeof(uint8_t));
 				e_vim2m_input_set = 1; // check H264 get in
 				e_vim2m_input_size = p_in_used;
+				return 0;
 			}
+			return EAGAIN;
 		}
 	} else if (q_data_in->fmt->fourcc == V4L2_PIX_FMT_NV12) { // SEND SIDE
 		if (q_data_out->fmt->fourcc == V4L2_PIX_FMT_H264) {
@@ -310,11 +312,12 @@ static int device_process(struct vim2m_ctx *ctx, struct vb2_v4l2_buffer *in_vb,
 
 				vb2_set_plane_payload(&out_vb->vb2_buf, 0,
 						      e_vim2m_input_size);
+				return 0;
 			}
 		}
 	}
 
-	return 0;
+	return EINVAL;
 }
 
 /*
@@ -369,7 +372,9 @@ static void device_run(void *priv)
 
 	/* Run delayed work, which simulates a hardware irq  */
 	// schedule_delayed_work(&ctx->work_run, msecs_to_jiffies(ctx->transtime));
-	schedule_delayed_work(&ctx->work_run, 0); // FIXME: just disable delay sim! will cause EINVAL
+	schedule_delayed_work(
+		&ctx->work_run,
+		0); // FIXME: just disable delay sim! will cause EINVAL
 }
 
 static void device_work(struct work_struct *w)
