@@ -83,6 +83,7 @@ static int e_vim2m_input_set = 0;
 static int e_vim2m_output_set = 0;
 static uint8_t *data_frame_buffer_tmp;
 static uint8_t *data_frame_buffer_tmp2;
+struct mutex goballock;
 
 static void vim2m_dev_release(struct device *dev)
 {
@@ -283,6 +284,8 @@ static int device_process(struct vim2m_ctx *ctx, struct vb2_v4l2_buffer *in_vb,
 	int p_in_used = vb2_get_plane_payload(&in_vb->vb2_buf, 0);
 	int p_out_used = vb2_get_plane_payload(&out_vb->vb2_buf, 0);
 
+	mutex_lock(&goballock);
+
 	if (q_data_in->fmt->fourcc == V4L2_PIX_FMT_H264) { // ENCODER SIDE
 		if (q_data_out->fmt->fourcc == V4L2_PIX_FMT_NV12) {
 			if (e_vim2m_input_set != 1) {
@@ -292,14 +295,17 @@ static int device_process(struct vim2m_ctx *ctx, struct vb2_v4l2_buffer *in_vb,
 				       q_data_out->sizeimage * sizeof(uint8_t));
 				e_vim2m_input_set = 1; // check H264 get in
 				e_vim2m_input_size = p_in_used;
+				mutex_unlock(&goballock);
 				return 0;
 			}
+			mutex_unlock(&goballock);
 			return EAGAIN;
 		}
 	} else if (q_data_in->fmt->fourcc == V4L2_PIX_FMT_NV12) { // SEND SIDE
 		if (q_data_out->fmt->fourcc == V4L2_PIX_FMT_H264) {
 			if (e_vim2m_input_set == 0) // 0 EAGAIN
 			{
+				mutex_unlock(&goballock);
 				return EAGAIN;
 			} else if (e_vim2m_input_set == 1) {
 				//
@@ -312,11 +318,12 @@ static int device_process(struct vim2m_ctx *ctx, struct vb2_v4l2_buffer *in_vb,
 
 				vb2_set_plane_payload(&out_vb->vb2_buf, 0,
 						      e_vim2m_input_size);
+				mutex_unlock(&goballock);
 				return 0;
 			}
 		}
 	}
-
+	mutex_unlock(&goballock);
 	return EINVAL;
 }
 
@@ -1069,6 +1076,7 @@ static int vim2m_probe(struct platform_device *pdev)
 	struct video_device *vfd;
 	int ret;
 
+	mutex_init(&goballock);
 	data_frame_buffer_tmp = vmalloc(MAX_H * MAX_W * 3 * sizeof(uint8_t));
 	data_frame_buffer_tmp2 = vmalloc(MAX_H * MAX_W * 3 * sizeof(uint8_t));
 
