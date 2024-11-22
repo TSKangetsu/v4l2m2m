@@ -12,6 +12,8 @@
  * Copyright (c) 2009-2010 Samsung Electronics Co., Ltd.
  * Pawel Osciak, <pawel@osciak.com>
  * Marek Szyprowski, <m.szyprowski@samsung.com>
+ * 
+ * modfine by TSKangetsu <x403070567@live.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by the
@@ -286,6 +288,7 @@ static int device_process(struct vim2m_ctx *ctx, struct vb2_v4l2_buffer *in_vb,
 
 	mutex_lock(&goballock);
 
+	//
 	if (q_data_in->fmt->fourcc == V4L2_PIX_FMT_H264) { // ENCODER SIDE
 		if (q_data_out->fmt->fourcc == V4L2_PIX_FMT_NV12) {
 			if (e_vim2m_input_set != 1) {
@@ -297,18 +300,12 @@ static int device_process(struct vim2m_ctx *ctx, struct vb2_v4l2_buffer *in_vb,
 				e_vim2m_input_size = p_in_used;
 				mutex_unlock(&goballock);
 				return 0;
-			}
-			mutex_unlock(&goballock);
-			return EAGAIN;
+			} else
+				vb2_set_plane_payload(&out_vb->vb2_buf, 0, 0);
 		}
 	} else if (q_data_in->fmt->fourcc == V4L2_PIX_FMT_NV12) { // SEND SIDE
 		if (q_data_out->fmt->fourcc == V4L2_PIX_FMT_H264) {
-			if (e_vim2m_input_set == 0) // 0 EAGAIN
-			{
-				mutex_unlock(&goballock);
-				return EAGAIN;
-			} else if (e_vim2m_input_set == 1) {
-				//
+			if (e_vim2m_input_set == 1) {
 				e_vim2m_input_set =
 					2; // now pop out H264, avoid double
 				memcpy(p_out, data_frame_buffer_tmp,
@@ -320,11 +317,12 @@ static int device_process(struct vim2m_ctx *ctx, struct vb2_v4l2_buffer *in_vb,
 						      e_vim2m_input_size);
 				mutex_unlock(&goballock);
 				return 0;
-			}
+			} else
+				vb2_set_plane_payload(&out_vb->vb2_buf, 0, 0);
 		}
 	}
 	mutex_unlock(&goballock);
-	return EINVAL;
+	return EAGAIN;
 }
 
 /*
@@ -1140,6 +1138,9 @@ static int vim2m_probe(struct platform_device *pdev)
 		goto error_m2m_mc;
 	}
 #endif
+
+	// TODO: add DMA BUF for encoder side
+	// dma_buf_init();
 	return 0;
 
 #ifdef CONFIG_MEDIA_CONTROLLER
