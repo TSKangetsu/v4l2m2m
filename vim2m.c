@@ -81,11 +81,13 @@ MODULE_PARM_DESC(default_transtime, "default transaction time in ms");
 	v4l2_dbg(lvl, debug, &(dev)->v4l2_dev, "%s: " fmt, __func__, ##arg)
 
 static int e_vim2m_input_size = 0;
+static int e_vim2m_input_size_last = 0;
 static int e_vim2m_input_set = 0;
 static int e_vim2m_output_set = 0;
 static uint8_t *data_frame_buffer_tmp;
 static uint8_t *data_frame_buffer_tmp2;
 struct mutex goballock;
+static struct vb2_buffer *out_buffer = NULL;
 
 static void vim2m_dev_release(struct device *dev)
 {
@@ -253,7 +255,7 @@ static int device_process(struct vim2m_ctx *ctx, struct vb2_v4l2_buffer *in_vb,
 {
 	struct vim2m_dev *dev = ctx->dev;
 	struct vim2m_q_data *q_data_in, *q_data_out;
-	u8 *p_in, *p_out;
+	u8 *p_in, *p_out, *p_last;
 	unsigned int width, height, bytesperline, bytes_per_pixel;
 
 	q_data_in = get_q_data(ctx, V4L2_BUF_TYPE_VIDEO_OUTPUT);
@@ -296,9 +298,14 @@ static int device_process(struct vim2m_ctx *ctx, struct vb2_v4l2_buffer *in_vb,
 				       q_data_in->sizeimage * sizeof(uint8_t));
 				memcpy(p_out, data_frame_buffer_tmp2,
 				       q_data_out->sizeimage * sizeof(uint8_t));
-				e_vim2m_input_set = 1; // check H264 get in
 				e_vim2m_input_size = p_in_used;
+				if (out_buffer != NULL) {
+					vb2_set_plane_payload(
+						out_buffer, 0,
+						e_vim2m_input_size);
+				}
 				mutex_unlock(&goballock);
+				e_vim2m_input_set = 1;
 				return 0;
 			} else
 				vb2_set_plane_payload(&out_vb->vb2_buf, 0, 0);
@@ -306,16 +313,14 @@ static int device_process(struct vim2m_ctx *ctx, struct vb2_v4l2_buffer *in_vb,
 	} else if (q_data_in->fmt->fourcc == V4L2_PIX_FMT_NV12) { // SEND SIDE
 		if (q_data_out->fmt->fourcc == V4L2_PIX_FMT_H264) {
 			if (e_vim2m_input_set == 1) {
-				e_vim2m_input_set =
-					2; // now pop out H264, avoid double
 				memcpy(p_out, data_frame_buffer_tmp,
 				       q_data_out->sizeimage * sizeof(uint8_t));
 				memcpy(data_frame_buffer_tmp2, p_in,
 				       q_data_in->sizeimage * sizeof(uint8_t));
-
-				vb2_set_plane_payload(&out_vb->vb2_buf, 0,
-						      e_vim2m_input_size);
+				// FIXME: the set payload will be send to next frame...
+				out_buffer = &out_vb->vb2_buf;
 				mutex_unlock(&goballock);
+				e_vim2m_input_set = 2;
 				return 0;
 			} else
 				vb2_set_plane_payload(&out_vb->vb2_buf, 0, 0);
@@ -353,35 +358,6 @@ static void job_abort(void *priv)
 	ctx->aborting = 1;
 }
 
-/* device_run() - prepares and starts the device
- *
- * This simulates all the immediate preparations required before starting
- * a device. This will be called by the framework when it decides to schedule
- * a particular instance.
- */
-static void device_run(void *priv)
-{
-	struct vim2m_ctx *ctx = priv;
-	struct vb2_v4l2_buffer *src_buf, *dst_buf;
-
-	src_buf = v4l2_m2m_next_src_buf(ctx->fh.m2m_ctx);
-	dst_buf = v4l2_m2m_next_dst_buf(ctx->fh.m2m_ctx);
-
-	/* Apply request controls if any */
-	v4l2_ctrl_request_setup(src_buf->vb2_buf.req_obj.req, &ctx->hdl);
-
-	device_process(ctx, src_buf, dst_buf);
-
-	/* Complete request controls if any */
-	v4l2_ctrl_request_complete(src_buf->vb2_buf.req_obj.req, &ctx->hdl);
-
-	/* Run delayed work, which simulates a hardware irq  */
-	// schedule_delayed_work(&ctx->work_run, msecs_to_jiffies(ctx->transtime));
-	schedule_delayed_work(
-		&ctx->work_run,
-		0); // FIXME: just disable delay sim! will cause EINVAL
-}
-
 static void device_work(struct work_struct *w)
 {
 	struct vim2m_ctx *curr_ctx;
@@ -405,14 +381,26 @@ static void device_work(struct work_struct *w)
 	v4l2_m2m_buf_done(src_vb, VB2_BUF_STATE_DONE);
 	v4l2_m2m_buf_done(dst_vb, VB2_BUF_STATE_DONE);
 
-	if (curr_ctx->num_processed == curr_ctx->translen ||
-	    curr_ctx->aborting) {
-		dprintk(curr_ctx->dev, 2, "Finishing capture buffer fill\n");
-		curr_ctx->num_processed = 0;
-		v4l2_m2m_job_finish(vim2m_dev->m2m_dev, curr_ctx->fh.m2m_ctx);
-	} else {
-		device_run(curr_ctx);
-	}
+	v4l2_m2m_job_finish(vim2m_dev->m2m_dev, curr_ctx->fh.m2m_ctx);
+}
+
+static void device_run(void *priv)
+{
+	struct vim2m_ctx *ctx = priv;
+	struct vb2_v4l2_buffer *src_buf, *dst_buf;
+
+	src_buf = v4l2_m2m_next_src_buf(ctx->fh.m2m_ctx);
+	dst_buf = v4l2_m2m_next_dst_buf(ctx->fh.m2m_ctx);
+
+	/* Apply request controls if any */
+	v4l2_ctrl_request_setup(src_buf->vb2_buf.req_obj.req, &ctx->hdl);
+
+	device_process(ctx, src_buf, dst_buf);
+
+	/* Complete request controls if any */
+	v4l2_ctrl_request_complete(src_buf->vb2_buf.req_obj.req, &ctx->hdl);
+
+	device_work(&ctx->work_run.work);
 }
 
 /*
@@ -770,7 +758,8 @@ static int vim2m_queue_setup(struct vb2_queue *vq, unsigned int *nbuffers,
 
 	*nplanes = 1;
 	sizes[0] = size;
-	e_vim2m_input_size = 0;
+	// e_vim2m_input_size = 0;
+	// e_vim2m_input_size_last = 0;
 
 	dprintk(ctx->dev, 1, "%s: get %d buffer(s) of size %d each.\n",
 		type_name(vq->type), count, size);
