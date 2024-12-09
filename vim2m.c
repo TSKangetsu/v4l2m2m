@@ -297,40 +297,40 @@ static int device_process(struct vim2m_ctx *ctx, struct vb2_v4l2_buffer *in_vb,
 
 	//
 	if (q_data_in->fmt->fourcc == V4L2_PIX_FMT_H264) { // ENCODER SIDE
-		if (q_data_out->fmt->fourcc == V4L2_PIX_FMT_NV12) {
-			if (e_vim2m_input_set != 1) {
-				memcpy(data_frame_buffer_tmp, p_in,
-				       q_data_in->sizeimage * sizeof(uint8_t));
-				memcpy(p_out, data_frame_buffer_tmp2,
-				       q_data_out->sizeimage * sizeof(uint8_t));
-				e_vim2m_input_size = p_in_used;
-				if (out_buffer != NULL) {
-					vb2_set_plane_payload(
-						out_buffer, 0,
-						e_vim2m_input_size);
-				}
-				mutex_unlock(&goballock);
-				e_vim2m_input_set = 1;
-				return 0;
-			} else
-				vb2_set_plane_payload(&out_vb->vb2_buf, 0, 0);
-		}
-	} else if (q_data_in->fmt->fourcc == V4L2_PIX_FMT_NV12) { // SEND SIDE
-		if (q_data_out->fmt->fourcc == V4L2_PIX_FMT_H264) {
-			if (e_vim2m_input_set == 1) {
-				memcpy(p_out, data_frame_buffer_tmp,
-				       q_data_out->sizeimage * sizeof(uint8_t));
-				memcpy(data_frame_buffer_tmp2, p_in,
-				       q_data_in->sizeimage * sizeof(uint8_t));
-				// FIXME: the set payload will be send to next frame...
-				out_buffer = &out_vb->vb2_buf;
-				mutex_unlock(&goballock);
-				e_vim2m_input_set = 2;
-				return 0;
-			} else
-				vb2_set_plane_payload(&out_vb->vb2_buf, 0, 0);
-		}
+		// if (q_data_out->fmt->fourcc == V4L2_PIX_FMT_NV12) {
+		if (e_vim2m_input_set != 1) {
+			memcpy(data_frame_buffer_tmp, p_in,
+			       q_data_in->sizeimage * sizeof(uint8_t));
+			memcpy(p_out, data_frame_buffer_tmp2,
+			       q_data_out->sizeimage * sizeof(uint8_t));
+			e_vim2m_input_size = p_in_used;
+			if (out_buffer != NULL) {
+				vb2_set_plane_payload(out_buffer, 0,
+						      e_vim2m_input_size);
+			}
+			mutex_unlock(&goballock);
+			e_vim2m_input_set = 1;
+			return 0;
+		} else
+			vb2_set_plane_payload(&out_vb->vb2_buf, 0, 0);
+		// }
+	} else {
+		//  if (q_data_in->fmt->fourcc == V4L2_PIX_FMT_NV12) { // SEND SIDE
+		// 	if (q_data_out->fmt->fourcc == V4L2_PIX_FMT_H264)
+		if (e_vim2m_input_set == 1) {
+			memcpy(p_out, data_frame_buffer_tmp,
+			       q_data_out->sizeimage * sizeof(uint8_t));
+			memcpy(data_frame_buffer_tmp2, p_in,
+			       q_data_in->sizeimage * sizeof(uint8_t));
+			// FIXME: the set payload will be send to next frame...
+			out_buffer = &out_vb->vb2_buf;
+			mutex_unlock(&goballock);
+			e_vim2m_input_set = 2;
+			return 0;
+		} else
+			vb2_set_plane_payload(&out_vb->vb2_buf, 0, 0);
 	}
+	// }
 	mutex_unlock(&goballock);
 	return EAGAIN;
 }
