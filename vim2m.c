@@ -107,6 +107,11 @@ struct vim2m_fmt {
 
 static struct vim2m_fmt formats[] = {
 	{
+		.fourcc = V4L2_PIX_FMT_YUYV,
+		.depth = 16,
+		.types = MEM2MEM_CAPTURE | MEM2MEM_OUTPUT,
+	},
+	{
 		.fourcc = V4L2_PIX_FMT_NV12,
 		.depth = 12,
 		.types = MEM2MEM_CAPTURE | MEM2MEM_OUTPUT,
