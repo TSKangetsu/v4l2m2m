@@ -87,6 +87,9 @@ static int e_vim2m_output_set = 0;
 static uint8_t *data_frame_buffer_tmp;
 static uint8_t *data_frame_buffer_tmp2;
 struct mutex goballock;
+
+static struct vb2_buffer *pin_enc = NULL;
+static struct vb2_buffer *pin_cam = NULL;
 static struct vb2_buffer *out_buffer = NULL;
 
 static void vim2m_dev_release(struct device *dev)
@@ -294,15 +297,15 @@ static int device_process(struct vim2m_ctx *ctx, struct vb2_v4l2_buffer *in_vb,
 	int p_out_used = vb2_get_plane_payload(&out_vb->vb2_buf, 0);
 
 	mutex_lock(&goballock);
-
 	//
 	if (q_data_in->fmt->fourcc == V4L2_PIX_FMT_H264) { // ENCODER SIDE
-		// if (q_data_out->fmt->fourcc == V4L2_PIX_FMT_NV12) {
 		if (e_vim2m_input_set != 1) {
-			memcpy(data_frame_buffer_tmp, p_in,
-			       q_data_in->sizeimage * sizeof(uint8_t));
-			memcpy(p_out, data_frame_buffer_tmp2,
-			       q_data_out->sizeimage * sizeof(uint8_t));
+			pin_enc = &in_vb->vb2_buf;
+			if (pin_cam != NULL) {
+				memcpy(p_out, vb2_plane_vaddr(pin_cam, 0),
+				       q_data_out->sizeimage * sizeof(uint8_t));
+			}
+
 			e_vim2m_input_size = p_in_used;
 			if (out_buffer != NULL) {
 				vb2_set_plane_payload(out_buffer, 0,
@@ -313,17 +316,14 @@ static int device_process(struct vim2m_ctx *ctx, struct vb2_v4l2_buffer *in_vb,
 			return 0;
 		} else
 			vb2_set_plane_payload(&out_vb->vb2_buf, 0, 0);
-		// }
 	} else {
-		//  if (q_data_in->fmt->fourcc == V4L2_PIX_FMT_NV12) { // SEND SIDE
-		// 	if (q_data_out->fmt->fourcc == V4L2_PIX_FMT_H264)
 		if (e_vim2m_input_set == 1) {
-			memcpy(p_out, data_frame_buffer_tmp,
-			       q_data_out->sizeimage * sizeof(uint8_t));
-			memcpy(data_frame_buffer_tmp2, p_in,
-			       q_data_in->sizeimage * sizeof(uint8_t));
-			// FIXME: the set payload will be send to next frame...
 			out_buffer = &out_vb->vb2_buf;
+			pin_cam = &in_vb->vb2_buf;
+			if (pin_enc != NULL) {
+				memcpy(p_out, vb2_plane_vaddr(pin_enc, 0),
+				       q_data_out->sizeimage * sizeof(uint8_t));
+			}
 			mutex_unlock(&goballock);
 			e_vim2m_input_set = 2;
 			return 0;
@@ -703,6 +703,14 @@ static int vim2m_s_ctrl(struct v4l2_ctrl *ctrl)
 	return 0;
 }
 
+static int vim2m_ioctl_qbuf(struct file *file, void *fh,
+			    struct v4l2_buffer *buf)
+{
+
+
+	v4l2_m2m_ioctl_qbuf(file, fh, buf);
+}
+
 static const struct v4l2_ctrl_ops vim2m_ctrl_ops = {
 	.s_ctrl = vim2m_s_ctrl,
 };
@@ -1016,6 +1024,11 @@ static int vim2m_release(struct file *file)
 	kfree(ctx);
 
 	atomic_dec(&dev->num_inst);
+
+	pin_cam = NULL;
+	pin_enc = NULL;
+	out_buffer = NULL;
+	e_vim2m_input_set = 0;
 
 	return 0;
 }
