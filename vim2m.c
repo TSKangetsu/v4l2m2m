@@ -81,9 +81,9 @@ MODULE_PARM_DESC(default_transtime, "default transaction time in ms");
 	v4l2_dbg(lvl, debug, &(dev)->v4l2_dev, "%s: " fmt, __func__, ##arg)
 
 static int e_vim2m_input_size = 0;
-static int e_vim2m_input_size_last = 0;
+// static int e_vim2m_input_size_last = 0;
 static int e_vim2m_input_set = 0;
-static int e_vim2m_output_set = 0;
+// static int e_vim2m_output_set = 0;
 static uint8_t *data_frame_buffer_tmp;
 static uint8_t *data_frame_buffer_tmp2;
 struct mutex goballock;
@@ -260,7 +260,7 @@ static int device_process(struct vim2m_ctx *ctx, struct vb2_v4l2_buffer *in_vb,
 {
 	struct vim2m_dev *dev = ctx->dev;
 	struct vim2m_q_data *q_data_in, *q_data_out;
-	u8 *p_in, *p_out, *p_last;
+	u8 *p_in, *p_out;
 	unsigned int width, height, bytesperline, bytes_per_pixel;
 
 	q_data_in = get_q_data(ctx, V4L2_BUF_TYPE_VIDEO_OUTPUT);
@@ -291,7 +291,7 @@ static int device_process(struct vim2m_ctx *ctx, struct vb2_v4l2_buffer *in_vb,
 	v4l2_m2m_buf_copy_metadata(in_vb, out_vb, true);
 
 	int p_in_used = vb2_get_plane_payload(&in_vb->vb2_buf, 0);
-	int p_out_used = vb2_get_plane_payload(&out_vb->vb2_buf, 0);
+	// int p_out_used = vb2_get_plane_payload(&out_vb->vb2_buf, 0);
 
 	mutex_lock(&goballock);
 
